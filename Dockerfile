@@ -16,7 +16,8 @@ COPY default.conf /etc/nginx/conf.d/default.conf
 # index.html (redirector) va a la raíz web; el visor y sus datos se
 # copian desde CADENAS/5.CACAO y quedan planos junto al index.
 COPY index.html                                  /usr/share/nginx/html/
-COPY CADENAS/5.CACAO/visualizador_cacao_v10.html /usr/share/nginx/html/
+COPY logo/logo.jpg                               /usr/share/nginx/html/logo.jpg
+COPY CADENAS/5.CACAO/mapa.html                   /usr/share/nginx/html/
 COPY CADENAS/5.CACAO/indices_data.js             /usr/share/nginx/html/
 
 EXPOSE 80

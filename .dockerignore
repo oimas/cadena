@@ -5,9 +5,12 @@
 !Dockerfile
 !default.conf
 !index.html
+!logo
+logo/*
+!logo/logo.jpg
 !CADENAS
 CADENAS/*
 !CADENAS/5.CACAO
 CADENAS/5.CACAO/*
-!CADENAS/5.CACAO/visualizador_cacao_v10.html
+!CADENAS/5.CACAO/mapa.html
 !CADENAS/5.CACAO/indices_data.js
