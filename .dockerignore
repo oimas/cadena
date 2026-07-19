@@ -1,0 +1,13 @@
+# Contexto de build = raíz de MAPA MDEA. Mismo criterio que .gitignore:
+# ignorar todo salvo el deploy, para no mandar los ~4.4 GB de
+# MDEA/indices (ni la data de las cadenas) al daemon de Docker.
+*
+!Dockerfile
+!default.conf
+!index.html
+!CADENAS
+CADENAS/*
+!CADENAS/5.CACAO
+CADENAS/5.CACAO/*
+!CADENAS/5.CACAO/visualizador_cacao_v10.html
+!CADENAS/5.CACAO/indices_data.js
