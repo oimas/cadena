@@ -10,6 +10,7 @@
 # 2) Permitir los archivos de deploy (raíz)
 !/.gitignore
 !/.dockerignore
+!/README.md
 !/Dockerfile
 !/default.conf
 !/index.html
