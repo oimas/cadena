@@ -120,6 +120,19 @@ Cascada de índices por punto (clic sobre el cubo): IS → ICPH → IHR → PPBA
 
 ## Cambios recientes
 
+### v15 — Caudal ponderado por % (Jul 2026)
+
+- **Segundo botón de "río"** bajo el de conteo: dibuja el flujo sobre las vías
+  acumulando el **% de la sub-ruta** (por **zona / departamento / corredor**) en
+  vez del número de recorridos. La dimensión se elige con **3 chips**, y cada río
+  tiene su color: conteo **azul**, zona **naranja**, departamento **verde**,
+  corredor **violeta**.
+- **Excluyente** con el caudal de conteo; se **re-normaliza** al filtrar rutas o
+  cambiar de dimensión. Los chips Dpto/Corredor **se grisan** (con fallback a Zona)
+  cuando solo queda activo un cultivo sin esas columnas.
+- **Datos**: las 3 dimensiones existen en Cacao/Café/Palta/Quinua; Mango/Madera
+  solo tienen "% en zona".
+
 ### v10.7 — Multi-cultivo unificado (Jul 2026)
 
 - **+Madera y Mango**: integrados al visor unificado con `unificar_cultivos.py`.
