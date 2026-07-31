@@ -151,6 +151,12 @@ en una sola línea, y el valor se codifica en **grosor + tono**.
   botón) también se benefició de la fusión — su máximo pasó de ~33 a 41
   recorridos, porque las rutas que van por la misma carretera ya caen en el
   mismo tramo.
+- **Apilado de capas corregido.** Las conexiones **CCPP → nodo** se traían al
+  frente y tapaban el río, las rutas y hasta los propios centros poblados: con
+  el checkbox activo el mapa se volvía una maraña azul. Ahora son contexto y van
+  **debajo**. El orden de `orden()` quedó, de abajo hacia arriba: zona agrícola /
+  departamentos → conexiones CCPP → río → rutas → centros poblados → cuellos de
+  botella.
 
 Verificado headless (Playwright + Edge) sobre el unificado: sin errores de
 consola, río dibujado en las 3 dimensiones y capturas antes/después del caso
