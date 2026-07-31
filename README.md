@@ -120,6 +120,42 @@ Cascada de índices por punto (clic sobre el cubo): IS → ICPH → IHR → PPBA
 
 ## Cambios recientes
 
+### v16 — Río ponderado: una vía, una línea (Jul 2026)
+
+El río ponderado ya se lee como un río: el flujo que comparte carretera se suma
+en una sola línea, y el valor se codifica en **grosor + tono**.
+
+- **Fusión de trazas paralelas.** OSRM devuelve trazados ligeramente distintos
+  para la **misma** carretera, así que dos sub-rutas que comparten camino salían
+  como **dos líneas finas paralelas** (medido: 23–70 m de separación; el 16 % de
+  los tramos tenía una paralela dentro de 80 m). Ahora cada tramo cede sus
+  sub-rutas a un "gemelo" cercano (perpendicular < 80 m, ángulo < 25°) y deja de
+  dibujarse. **No se mueve ninguna coordenada**: sobrevive la traza real de OSRM.
+  Resultado: 182.397 → 55.486 tramos y **0 paralelas** dentro de 80 m.
+- **Intensidad por valor.** El río va de un tinte claro en los capilares al color
+  de la dimensión **oscurecido** en el troncal. Antes solo variaba el grosor y dos
+  tramos de peso parecido se confundían.
+- **Cada sub-ruta cuenta una sola vez.** Una sub-ruta que recorre dos veces el
+  mismo tramo (ida y vuelta) se sumaba dos veces: el número mostrado llegó a
+  inflarse **383 puntos** (zona marcaba 766 % donde correspondía 523 %).
+- **Departamento redondea a 100.** Los % del FORMATO no cierran exacto (99.8,
+  100.2): el grupo que llega al total se muestra como `100.0`, para que el número
+  no contradiga al rótulo "100 % COMPLETO". Solo presentación, y solo cerca de
+  100 — un tramo donde confluyen dos departamentos (161.8 %) se muestra tal cual.
+  Zona y corredor van sin redondeo.
+- **Desglose por clic** sobre el río: agrupa por el denominador contra el que está
+  normalizado cada % (zona = ruta base; dpto/corredor = su producción), y cada
+  grupo cierra en su propio 100 %. La **marca del 100 %** (punteada roja) señala
+  por dónde converge una zona / un departamento / un corredor **completo**.
+- Nota: la red de tramos es compartida, así que el **caudal por conteo** (1er
+  botón) también se benefició de la fusión — su máximo pasó de ~33 a 41
+  recorridos, porque las rutas que van por la misma carretera ya caen en el
+  mismo tramo.
+
+Verificado headless (Playwright + Edge) sobre el unificado: sin errores de
+consola, río dibujado en las 3 dimensiones y capturas antes/después del caso
+reportado (AM1/R1 vs AM1/R2, Amazonas).
+
 ### v15 — Caudal ponderado por % (Jul 2026)
 
 - **Segundo botón de "río"** bajo el de conteo: dibuja el flujo sobre las vías
