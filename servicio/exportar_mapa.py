@@ -360,15 +360,15 @@ def poner_basemap(ax, crs, nombre, zoom=None, limpio=False):
     """
     fam, var, credito = BASEMAPS.get(nombre, BASEMAPS["Claro"])
     if fam is None:
-        return ""
+        return "", False                      # fondo "Blanco": sin teselas a propósito
     if limpio and var:
         var = BASEMAPS_LIMPIOS.get((fam, var), var)
     try:
         import contextily as ctx
     except ImportError:
-        print("  ! contextily no está instalado → mapa sin basemap "
+        print("  ! contextily no está instalado -> mapa sin basemap "
               "(pip install contextily)")
-        return ""
+        return "", False
 
     # Caché de teselas EN DISCO. Sin esto contextily re-descarga todo en cada
     # render (medido: 94 s el mismo mapa que ya se había previsualizado) — con
@@ -401,9 +401,9 @@ def poner_basemap(ax, crs, nombre, zoom=None, limpio=False):
         ctx.add_basemap(ax, crs=crs, source=prov, zoom=zoom,
                         attribution=False, zorder=0, alpha=1.0)
     except Exception as ex:
-        print(f"  ! no se pudo bajar el basemap ({type(ex).__name__}: {ex})")
-        return credito
-    return credito
+        print(f"  ! NO se pudo bajar el basemap ({type(ex).__name__}: {ex})")
+        return credito, False
+    return credito, True
 
 
 def _bbox_lonlat(ax, crs):
@@ -961,7 +961,7 @@ def dibujar_leyenda(ax, leyenda, d):
 # ════════════════════════════════════════════════════════════════════════════
 
 def componer(d, salida_base, crs_forzado=None, zoom=None, sin_basemap=False,
-             formatos=("png", "pdf")):
+             formatos=("png", "pdf"), info=None):
     papel = d.get("papel", {})
     fmt = papel.get("formato", "A3").upper()
     dpi = int(papel.get("dpi", 300))
@@ -988,9 +988,12 @@ def componer(d, salida_base, crs_forzado=None, zoom=None, sin_basemap=False,
     con_pie = bool(d.get("opciones", {}).get("creditos", True))
     _b, _h = (.062, .858) if con_pie else (.042, .878)
     ax = fig.add_axes([.068, _b, .872, _h])
-    # Océano en azul suave: con basemap las teselas lo tapan, pero con el fondo
-    # "Blanco" es lo que convierte el lienzo gris en un mapa de atlas.
-    ax.set_facecolor("#D8E6F0")
+    # Fondo NEUTRO. Se probó un celeste de océano (#D8E6F0) para dar aire de
+    # atlas cuando no hay teselas, y se descartó: si el basemap no llega a
+    # dibujarse —por elección o porque falló la descarga— el mapa entero queda
+    # bañado en azul, que es justo lo que no se quiere. El gris claro es
+    # invisible bajo las teselas y discreto cuando no las hay.
+    ax.set_facecolor("#F2F5F7")
 
     # Extensión primero: contextily y el marco leen los límites del eje.
     tr = pyproj.Transformer.from_crs("EPSG:4326", crs, always_xy=True)
@@ -1020,11 +1023,14 @@ def componer(d, salida_base, crs_forzado=None, zoom=None, sin_basemap=False,
     ax.set_ylim(ey0, ey1)
     ax.set_aspect("equal")
 
-    credito_base = ""
+    credito_base, base_ok = "", False
     if not sin_basemap:
-        credito_base = poner_basemap(ax, crs, d["vista"].get("basemap", "Claro"),
-                                     zoom, d.get("opciones", {}).get("base_limpio", True))
+        credito_base, base_ok = poner_basemap(
+            ax, crs, d["vista"].get("basemap", "Claro"), zoom,
+            d.get("opciones", {}).get("base_limpio", True))
         ax.set_xlim(ex0, ex1); ax.set_ylim(ey0, ey1)   # contextily toca los límites
+    if info is not None:
+        info["basemap_ok"] = base_ok
 
     # Índice MDEA: el .tif original si está, si no el PNG del propio JSON.
     idx = d.get("indice")
@@ -1045,9 +1051,11 @@ def componer(d, salida_base, crs_forzado=None, zoom=None, sin_basemap=False,
             print(f"  ! índice {idx.get('sigla')}: sin fuente disponible")
         ax.set_xlim(ex0, ex1); ax.set_ylim(ey0, ey1)
 
-    # Con el fondo "Blanco" (o --sin-basemap) los departamentos se rellenan como
-    # tierra; con teselas no, porque taparían el basemap.
-    con_tiles = (not sin_basemap) and d["vista"].get("basemap", "Claro") != "Blanco"
+    # Sin teselas dibujadas —por elección o porque la descarga falló— los
+    # departamentos se rellenan como tierra, para que el mapa no quede flotando
+    # sobre un fondo plano. Se mira el resultado REAL, no la intención: si se
+    # pidió basemap y no llegó, igual conviene el relleno.
+    con_tiles = base_ok
 
     ft = escala_trazo(fig)
     leyenda = dibujar_capas(ax, d, crs, d.get("opciones", {}), ft, con_tiles)
@@ -1201,9 +1209,11 @@ def servir(puerto=8765, host="127.0.0.1"):
             prev = dict(d)
             prev["papel"] = dict(d.get("papel") or {})
             prev["papel"]["dpi"] = min(140, int(prev["papel"].get("dpi", 300)))
+            info = {}
             try:
                 with candado:
-                    png_prev, _ = componer(prev, base + "_prev", formatos=("png",))
+                    png_prev, _ = componer(prev, base + "_prev",
+                                           formatos=("png",), info=info)
             except Exception as ex:
                 import traceback; traceback.print_exc()
                 return self._json({"error": f"{type(ex).__name__}: {ex}"}, 500)
@@ -1221,6 +1231,12 @@ def servir(puerto=8765, host="127.0.0.1"):
                 "preview": "data:image/jpeg;base64," +
                            base64.b64encode(buf.getvalue()).decode(),
                 "nombre": trabajos[jid]["nombre"],
+                # Se informa al visor si el mapa base llegó a dibujarse. Sin
+                # esto, un contenedor sin salida a internet devuelve mapas con
+                # el fondo pelado y no hay forma de saber por qué sin mirar los
+                # logs del servidor.
+                "basemap_ok": bool(info.get("basemap_ok")),
+                "basemap": d.get("vista", {}).get("basemap"),
             })
 
     srv = ThreadingHTTPServer((host, puerto), H)
