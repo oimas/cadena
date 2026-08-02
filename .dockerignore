@@ -14,3 +14,8 @@ CADENAS/*
 CADENAS/5.CACAO/*
 !CADENAS/5.CACAO/mapa.html
 !CADENAS/5.CACAO/indices_data.js
+!servicio
+servicio/*
+!servicio/exportar_mapa.py
+!servicio/requirements.txt
+!servicio/arranque.sh

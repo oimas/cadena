@@ -1,0 +1,9 @@
+# El contenedor es Linux: estos archivos TIENEN que quedar con finales de línea
+# LF. Se trabaja desde Windows, donde git los convertiría a CRLF, y un
+# arranque.sh con CRLF hace que el shebang quede como "#!/bin/bash\r" → el
+# contenedor no arranca con "bad interpreter". No es hipotético: git avisó de la
+# conversión al agregar el archivo.
+*.sh        text eol=lf
+*.py        text eol=lf
+*.conf      text eol=lf
+Dockerfile  text eol=lf

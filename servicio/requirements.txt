@@ -1,0 +1,16 @@
+# Dependencias del servicio de render (exportar_mapa.py --servidor).
+#
+# rasterio va SÍ o SÍ, aunque el servidor no lea GeoTIFF: es dependencia dura de
+# contextily. Sin él, contextily no importa, el script se lo salta con un aviso
+# y los mapas salen SIN mapa base — falla silenciosa, medida al probar.
+#
+# Si algún día se montan los .tif de MDEA/indices/ en el contenedor, el script
+# los detecta y los usa solo (mejor calidad que el PNG embebido en el JSON).
+matplotlib==3.10.*
+numpy==2.*
+geopandas==1.*
+shapely==2.*
+pyproj==3.*
+rasterio==1.*
+contextily==1.*
+pillow==11.*

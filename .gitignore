@@ -9,6 +9,7 @@
 
 # 2) Permitir los archivos de deploy (raíz)
 !/.gitignore
+!/.gitattributes
 !/.dockerignore
 !/README.md
 !/Dockerfile
@@ -26,3 +27,12 @@
 !/CADENAS/5.CACAO/mapa.html
 !/CADENAS/5.CACAO/mapa.UNIFICADO.html
 !/CADENAS/5.CACAO/indices_data.js
+
+# 4) Servicio de render que corre dentro del contenedor junto a nginx.
+#    exportar_mapa.py es una COPIA: la fuente de verdad vive en
+#    PUBLICAR\scripts\ y la trae actualizar_git.ps1.
+!/servicio/
+/servicio/*
+!/servicio/exportar_mapa.py
+!/servicio/requirements.txt
+!/servicio/arranque.sh
