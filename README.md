@@ -14,21 +14,26 @@ Palta, Quinua**.
 
 ## Qué es este repo
 
-Es el **sitio ya construido** (salida del build), servido como estático con
-nginx en un contenedor Docker. No contiene los scripts de build (esos viven
-fuera del repo, en `PUBLICAR/scripts/`).
+Es el **sitio ya construido** (salida del build) más el **servicio de render**
+de mapas de imprenta. No contiene los scripts de build (viven fuera del repo,
+en `PUBLICAR/scripts/`).
 
 ```
 .
 ├── index.html                     # redirector: home → /mapa
 ├── CADENAS/5.CACAO/
-│   ├── mapa.html                  # el visor (≈82 MB, datos embebidos)
+│   ├── mapa.html                  # el visor (≈83 MB, datos embebidos)
 │   ├── mapa.UNIFICADO.html        # copia de seguridad del unificado
 │   └── indices_data.js            # capas de índices (≈11 MB)
 ├── logo/logo.jpg
-├── Dockerfile                     # imagen nginx:alpine
-├── default.conf                   # config nginx (ruta /mapa + gzip)
+├── servicio/                      # renderer que corre junto a nginx
+│   ├── exportar_mapa.py           # COPIA; la fuente vive en PUBLICAR/scripts/
+│   ├── requirements.txt
+│   └── arranque.sh                # levanta render + nginx
+├── Dockerfile                     # python:3.12-slim + nginx
+├── default.conf                   # nginx: /mapa, gzip y proxy /exportador
 ├── .dockerignore
+├── .gitattributes                 # fuerza LF (el contenedor es Linux)
 └── .gitignore
 ```
 
@@ -38,13 +43,15 @@ fuera del repo, en `PUBLICAR/scripts/`).
 
 - **HTML + CSS** — interfaz.
 - **JavaScript** — lógica del mapa (librería **Leaflet**, vía CDN unpkg).
-- **Python** — solo para *generar* los HTML (build local, fuera del repo).
-  No corre en el servidor.
 - **Datos** — JSON, GeoJSON y PNG en base64, **embebidos** en el HTML/JS.
-- **nginx (Docker)** — servidor web.
+- **nginx** — sirve el sitio y proxea el renderer.
+- **Python** — dos roles distintos:
+  - *fuera del repo*: genera los HTML (build local).
+  - *dentro del contenedor*: el **servicio de render** (matplotlib + geopandas +
+    contextily) que convierte una selección del visor en PNG 300 dpi + PDF.
 
-> No usa base de datos ni backend: es un **sitio estático**. El contenedor sí
-> necesita salida a internet (Leaflet y los tiles del mapa base son CDNs).
+> No usa base de datos. El contenedor **necesita salida a internet**: Leaflet,
+> los tiles del mapa base del visor y las teselas que baja el renderer son CDNs.
 
 ---
 
@@ -54,6 +61,18 @@ fuera del repo, en `PUBLICAR/scripts/`).
 2. nginx sirve `mapa.html` en la ruta limpia `/mapa` (ver `default.conf`).
 3. `mapa.html` carga `indices_data.js` (relativo) y Leaflet desde la CDN.
 4. Toda la data (rutas, nodos, CCPP, cubo PPE) ya está dentro de los archivos.
+5. Al **exportar un mapa**, el visor hace `POST /exportador/render` con la
+   selección; nginx lo proxea al renderer en `127.0.0.1:8765`, que devuelve una
+   previsualización y deja el PNG/PDF listo en `/exportador/descargar/<id>.png`.
+
+### Por qué el render corre acá y no en la máquina de quien exporta
+
+Los navegadores **bloquean** que una página de origen público llame a
+`127.0.0.1` (*Private Network Access*): `Permission was denied for this request
+to access the loopback address space`. No se puede sortear desde la página, así
+que el renderer tiene que vivir del mismo lado que el HTML y responder por el
+mismo origen. El visor detecta dónde se abrió y elige a dónde pedir: al
+`127.0.0.1:8765` local si es `file://`, o a `/exportador` si está publicado.
 
 ---
 
@@ -69,13 +88,36 @@ BUILD (Python, local)
   → EasyPanel reconstruye el contenedor y publica en mdea.intismart.com
 ```
 
+**EasyPanel:** Build = Dockerfile · Puerto = `80`. No cambió al sumar el
+renderer, pero el **primer build tarda bastante más**: instala Python y el stack
+geoespacial (~1 GB). Los siguientes reusan caché.
+
 Probar la imagen localmente:
 
 ```bash
 docker build -t mdea .
 docker run -p 8080:80 mdea
 # abrir http://localhost:8080
+# y comprobar el renderer:  curl http://localhost:8080/exportador/ping
 ```
+
+### Si el mapa exportado sale sin fondo
+
+El renderer devuelve `basemap_ok` en cada render y el visor lo muestra en
+pantalla. En `false` significa que el contenedor no alcanzó
+`basemaps.cartocdn.com` — política de red o DNS del servidor. El resto del mapa
+es correcto; el fondo "Blanco" del visor no necesita teselas.
+
+### Notas del build
+
+- **`rasterio` es obligatorio** en `servicio/requirements.txt` aunque el servidor
+  no lea GeoTIFF: es dependencia dura de `contextily`. Sin él los mapas salen sin
+  mapa base **sin avisar en el build**.
+- **`.gitattributes` fuerza LF.** `arranque.sh` con CRLF deja el shebang como
+  `#!/bin/bash\r` y el contenedor no arranca (*bad interpreter*). El Dockerfile
+  además le pasa un `sed` por las dudas.
+- **`.gitignore` ignora todo salvo una lista blanca.** Al agregar archivos al
+  deploy hay que permitirlos explícitamente o el `COPY` del Dockerfile falla.
 
 ---
 
