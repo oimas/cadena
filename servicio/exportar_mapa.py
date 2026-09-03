@@ -1132,6 +1132,55 @@ def servir(puerto=8765, host="127.0.0.1"):
     # render va serializado.
     candado = threading.Lock()
 
+    def diagnostico_red():
+        """Prueba UNA tesela de cada proveedor y devuelve el error exacto.
+
+        Existe porque cuando el impreso sale sin fondo, desde afuera no hay
+        forma de saber por qué: el visor solo dice «no pudo descargar las
+        teselas» y el motivo real queda en los logs del contenedor. Medido en
+        producción (2026-09-03): fallaban los CUATRO proveedores a la vez —tres
+        dominios distintos—, que es la firma de un contenedor sin salida a
+        internet, no de un proveedor que cambió de política. Esto lo distingue:
+        si el DNS resuelve pero la descarga corta, es egress; si no resuelve,
+        es DNS; si vuelve 403, es el proveedor.
+
+        Se consulta con GET /exportador/diagnostico en el sitio publicado.
+        """
+        import socket, urllib.parse, urllib.request
+        out = {"teselas": {}, "dns": {}}
+        try:
+            import contextily as ctx
+            out["contextily"] = getattr(ctx, "__version__", "?")
+        except Exception as ex:
+            return {"contextily": f"NO SE PUEDE IMPORTAR: {type(ex).__name__}: {ex}",
+                    "teselas": {}, "dns": {}}
+        z, x, y = 6, 17, 34               # una tesela sobre Perú
+        for nombre, (fam, var, _cred) in BASEMAPS.items():
+            if fam is None:
+                continue                  # 'Blanco' no usa teselas
+            try:
+                prov = getattr(ctx.providers, fam)
+                if var:
+                    prov = getattr(prov, var)
+                url = prov.build_url(z=z, x=x, y=y)
+            except Exception as ex:
+                out["teselas"][nombre] = f"no se pudo armar la URL: {type(ex).__name__}: {ex}"
+                continue
+            host = urllib.parse.urlsplit(url).hostname
+            if host not in out["dns"]:
+                try:
+                    out["dns"][host] = socket.gethostbyname(host)
+                except Exception as ex:
+                    out["dns"][host] = f"{type(ex).__name__}: {ex}"
+            try:
+                pedido = urllib.request.Request(url, headers={"User-Agent": "mdea-export"})
+                with urllib.request.urlopen(pedido, timeout=12) as r:
+                    out["teselas"][nombre] = f"HTTP {r.status} · {len(r.read())} bytes"
+            except Exception as ex:
+                out["teselas"][nombre] = f"{type(ex).__name__}: {ex}"
+        out["ok"] = all(str(v).startswith("HTTP 200") for v in out["teselas"].values())
+        return out
+
     class H(BaseHTTPRequestHandler):
         def log_message(self, *a):
             pass                  # el servidor imprime lo suyo, no el access log
@@ -1160,6 +1209,8 @@ def servir(puerto=8765, host="127.0.0.1"):
         def do_GET(self):
             if self.path == "/ping":
                 return self._json({"ok": True, "servicio": "mdea-export", "schema": SCHEMA})
+            if self.path == "/diagnostico":
+                return self._json(diagnostico_red())
             if self.path.startswith("/descargar/"):
                 nombre = self.path.rsplit("/", 1)[-1]
                 jid, _, ext = nombre.rpartition(".")
