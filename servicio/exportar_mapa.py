@@ -102,8 +102,11 @@ TIF_POR_INDICE = {
 # Nombre del basemap en el visor (BASES de mapa.html) → proveedor de contextily.
 # 'Blanco' es el gridLayer blanco del visor: sin teselas.
 BASEMAPS = {
-    "Claro":    ("CartoDB", "Positron",      "© CARTO © OpenStreetMap contributors"),
-    "Calles":   ("CartoDB", "Voyager",       "© CARTO © OpenStreetMap contributors"),
+    # CARTO cerro sus basemaps publicos (2026-09): sin API key las teselas
+    # llegan estampadas "API KEY REQUIRED". Se pasan a Esri, que sigue abierto
+    # y ya servia el satelital.
+    "Claro":    ("Esri", "WorldGrayCanvas",  "© Esri © OpenStreetMap contributors"),
+    "Calles":   ("Esri", "WorldStreetMap",   "© Esri © OpenStreetMap contributors"),
     "Relieve":  ("OpenTopoMap", None,        "© OpenTopoMap (CC-BY-SA) © OpenStreetMap contributors"),
     "Satélite": ("Esri", "WorldImagery",     "© Esri, Maxar, Earthstar Geographics"),
     "Blanco":   (None, None,                 ""),
@@ -111,8 +114,10 @@ BASEMAPS = {
 
 # Variante SIN topónimos de cada proveedor. A los zooms de papel el basemap
 # rotula cientos de caseríos que compiten con los nombres de nodo y de
-# departamento. OpenTopoMap y Esri no tienen variante limpia: quedan como están
-# (Esri es satelital, no trae etiquetas de por sí).
+# departamento. OpenTopoMap y Esri no tienen variante limpia: quedan como están.
+# Ojo: desde que el gris lo pone Esri (CARTO pide API key), "limpio" ya no quita
+# topónimos en Claro/Calles — las entradas CartoDB de abajo quedan por si alguna
+# vez se configura una clave.
 BASEMAPS_LIMPIOS = {
     ("CartoDB", "Positron"): "PositronNoLabels",
     ("CartoDB", "Voyager"): "VoyagerNoLabels",
