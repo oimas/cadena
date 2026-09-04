@@ -107,6 +107,11 @@ BASEMAPS = {
     # y ya servia el satelital.
     "Claro":    ("Esri", "WorldGrayCanvas",  "© Esri © OpenStreetMap contributors"),
     "Calles":   ("Esri", "WorldStreetMap",   "© Esri © OpenStreetMap contributors"),
+    # Fondos suaves: la red vial sin que le gane al dato. 'Calles tenue' es la
+    # misma tesela que 'Calles' pero gris y al 55 %; 'Calles claras' es el
+    # canvas gris SIN la capa de rótulos (cero topónimos).
+    "Calles tenue":  ("Esri", "WorldStreetMap",  "© Esri © OpenStreetMap contributors"),
+    "Calles claras": ("Esri", "WorldGrayCanvas", "© Esri © OpenStreetMap contributors"),
     "Relieve":  ("OpenTopoMap", None,        "© OpenTopoMap (CC-BY-SA) © OpenStreetMap contributors"),
     "Satélite": ("Esri", "WorldImagery",     "© Esri, Maxar, Earthstar Geographics"),
     "Blanco":   (None, None,                 ""),
@@ -122,6 +127,11 @@ BASEMAPS_LIMPIOS = {
     ("CartoDB", "Positron"): "PositronNoLabels",
     ("CartoDB", "Voyager"): "VoyagerNoLabels",
 }
+
+# Los fondos "tenues" del visor son la MISMA tesela con un filtro CSS
+# (grayscale + opacidad). Acá se replica —gris + alpha— o el impreso saldría a
+# color y no se parecería a lo que la persona eligió en pantalla.
+BASEMAPS_TENUES = {"Calles tenue": 0.55}
 
 # Papel en mm (ancho, alto) en VERTICAL. La orientación se aplica después.
 PAPEL_MM = {"A5": (148, 210), "A4": (210, 297), "A3": (297, 420), "A2": (420, 594)}
@@ -402,12 +412,26 @@ def poner_basemap(ax, crs, nombre, zoom=None, limpio=False):
     if isinstance(zoom, int):
         zoom = min(zoom, _zoom_max(_bbox_lonlat(ax, crs), MAX_TESELAS))
 
+    n_antes = len(ax.images)
     try:
-        ctx.add_basemap(ax, crs=crs, source=prov, zoom=zoom,
-                        attribution=False, zorder=0, alpha=1.0)
+        ctx.add_basemap(ax, crs=crs, source=prov, zoom=zoom, attribution=False,
+                        zorder=0, alpha=BASEMAPS_TENUES.get(nombre, 1.0))
     except Exception as ex:
         print(f"  ! NO se pudo bajar el basemap ({type(ex).__name__}: {ex})")
         return credito, False
+
+    if nombre in BASEMAPS_TENUES and len(ax.images) > n_antes:
+        # A gris, igual que el filtro del visor. Se hace sobre la imagen ya
+        # colocada porque contextily no expone las teselas antes de dibujarlas.
+        img = ax.images[n_antes]
+        arr = img.get_array()
+        if arr is not None and getattr(arr, "ndim", 0) == 3 and arr.shape[2] >= 3:
+            luz = (arr[..., :3].astype("float32")
+                   * np.array([0.299, 0.587, 0.114], dtype="float32")).sum(axis=2)
+            gris = np.repeat(luz[..., None], 3, axis=2).astype(arr.dtype)
+            if arr.shape[2] == 4:
+                gris = np.dstack([gris, arr[..., 3]])
+            img.set_data(gris)
     return credito, True
 
 
