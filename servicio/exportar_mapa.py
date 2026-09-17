@@ -51,6 +51,7 @@ import json
 import math
 import os
 import sys
+import textwrap
 from datetime import datetime
 
 import numpy as np
@@ -483,7 +484,7 @@ def escala_trazo(fig):
     return fig.get_size_inches()[0] * 72.0 / ANCHO_VISOR_PX
 
 
-def dibujar_capas(ax, d, crs, op, ft=1.0, con_tiles=True):
+def dibujar_capas(ax, d, crs, op, ft=1.0, con_tiles=True, color_tierra="#F7F4EC"):
     """Dibuja lo que el visor tenía visible. `leyenda` acumula lo que se usó.
 
     `ft` es el factor de escala_trazo(): convierte los grosores y radios que el
@@ -491,18 +492,45 @@ def dibujar_capas(ax, d, crs, op, ft=1.0, con_tiles=True):
     basemap debajo: sin él, la tierra se rellena para el look de atlas.
     """
     capas = d.get("capas", {})
-    leyenda = {"etapas": [], "indice": None, "caudal": None, "extras": []}
+    leyenda = {"etapas": [], "indice": None, "caudal": None, "extras": [],
+               "agricola": None}
+    # El cuerpo de las etiquetas de nodo sale del slider "Tamaño de etiquetas"
+    # del visor. Se lee ACÁ y no donde se dibujan porque más abajo hay un `d`
+    # local (una distancia) que pisa el payload — costó un AttributeError.
+    # Se acota al rango del propio slider (0,5×–2,5×) por si llega algo raro.
+    try:
+        esc_lbl = min(2.5, max(0.5, float(d.get("escala_etiqueta") or 1)))
+    except (TypeError, ValueError):
+        esc_lbl = 1.0
 
-    # ── Tierra (solo sin basemap): junto al océano del facecolor convierte el
-    # fondo "Blanco" en tierra crema / mar celeste, en vez de un lienzo gris.
-    # Va DEBAJO del índice raster (zorder 2) para no taparlo.
+    # ── Tierra (solo sin basemap): el relleno crema le da aire de atlas al mapa
+    # cuando el basemap NO llegó, para que no quede flotando sobre un plano.
+    # Con `color_tierra=None` no se rellena nada: es lo que corresponde cuando
+    # el usuario ELIGIÓ el fondo "Blanco", que en el visor es blanco puro y en
+    # papel tiene que salir igual. Va DEBAJO del índice raster (zorder 2).
     deptos_pre = capas.get("deptos") or []
-    if deptos_pre and not con_tiles:
+    if deptos_pre and not con_tiles and color_tierra:
         gs = proyectar([x["G"] for x in deptos_pre], crs)
         if gs is not None:
-            gs.plot(ax=ax, color="#F7F4EC", edgecolor="none", zorder=1.2)
+            gs.plot(ax=ax, color=color_tierra, edgecolor="none", zorder=1.2)
 
-    # ── Área agrícola (contexto de fondo) ──────────────────────────────────
+    # ── Área agrícola por cultivo, clasificada (raster) ────────────────────
+    # Llega como PNG en Web Mercator, uno por cultivo encendido: los polígonos
+    # son máscaras de detalle parcelario (443 MB de gpkg) y no entran como
+    # vector. Se reusa el mismo camino que el ráster de índices — solo hay que
+    # reproyectar el rectángulo — y va al fondo, bajo las cadenas.
+    for cap in (capas.get("agricola_raster") or []):
+        r = indice_desde_b64(cap, crs, float(cap.get("opacidad", .65)))
+        if not r:
+            continue
+        rgba, extent = r
+        ax.imshow(rgba, extent=extent, origin="upper", zorder=3,
+                  interpolation="nearest")
+        if leyenda["agricola"] is None:
+            leyenda["agricola"] = {"cultivos": [], "clases": cap.get("clases") or []}
+        leyenda["agricola"]["cultivos"].append(cap.get("cultivo", ""))
+
+    # ── Área agrícola (vector: plantilla suelta, sin raster) ───────────────
     if capas.get("agricola"):
         gs = proyectar([capas["agricola"]], crs)
         if gs is not None:
@@ -728,7 +756,7 @@ def dibujar_capas(ax, d, crs, op, ft=1.0, con_tiles=True):
         vis = [n for n in nodos if n.get("lbl")]
         for n in vis:
             x, y = proyectar_puntos([n["x"]], [n["y"]], crs)
-            ax.annotate(n["nom"], (x[0], y[0]), fontsize=6.5, ha="left",
+            ax.annotate(n["nom"], (x[0], y[0]), fontsize=6.5 * esc_lbl, ha="left",
                         va="center", xytext=(4, 0), textcoords="offset points",
                         color="#1A1A1A", zorder=13,
                         path_effects=[pe.withStroke(linewidth=2, foreground="white")])
@@ -901,6 +929,147 @@ def _sep(label):
     return Line2D([], [], ls="", marker="", label=label)
 
 
+def dibujar_ficha(fig, ax, d, crs):
+    """La ficha del último punto consultado en el visor + su miniatura de ubicación.
+
+    Reproduce en papel lo que el popup muestra en pantalla: el nodo de cadena, el
+    del Índice Nodal o el cubo del Potencial Productivo Efectivo. El visor manda
+    los DATOS (`ficha`), no el HTML, así que acá se maqueta de cero.
+
+    Va a la derecha, en su propio eje: el panel crece según el contenido y la
+    miniatura se apoya arriba. La miniatura es un localizador clásico —silueta
+    del país + punto—, no un recorte del mapa: no necesita teselas (el contenedor
+    del deploy no tiene salida a internet) y responde la pregunta que importa,
+    que es DÓNDE queda el punto respecto del país.
+    """
+    f = d.get("ficha")
+    if not f:
+        return
+
+    # ── 1. la marca sobre el mapa ──────────────────────────────────────────
+    try:
+        px, py = proyectar_puntos([float(f["lon"])], [float(f["lat"])], crs)
+    except Exception:
+        return
+    col = f.get("color") or "#C62828"
+    ax.plot(px, py, marker="o", ms=21, mfc="none", mec="white", mew=4.6, zorder=19)
+    ax.plot(px, py, marker="o", ms=21, mfc="none", mec=col, mew=2.6, zorder=20)
+    ax.plot(px, py, marker="+", ms=15, mec=col, mew=2.0, zorder=20)
+
+    # ── 2. cuántas líneas ocupa (para dimensionar el panel) ────────────────
+    ANCHO_TXT = 50                      # caracteres por línea del texto envuelto
+    lineas = []                         # (tipo, texto, color)
+    lineas.append(("tit", f.get("titulo", ""), col))
+    if f.get("sub"):
+        lineas += [("sub", s, "#6B7680")
+                   for s in textwrap.wrap(f["sub"], ANCHO_TXT + 6)[:2]]
+    for k, v in (f.get("filas") or []):
+        lineas.append(("fila", (k, v), None))
+    for b in (f.get("bloques") or []):
+        lineas.append(("blk", b.get("t", ""), b.get("c") or "#999"))
+        for k, v in (b.get("filas") or []):
+            lineas.append(("fila", (k, v), None))
+        if b.get("txt"):
+            lineas += [("txt", s, "#4A5560")
+                       for s in textwrap.wrap(b["txt"], ANCHO_TXT)]
+    if not lineas:
+        return
+
+    # Cada tipo de línea avanza distinto, así que el alto se calcula sumando los
+    # avances REALES: dimensionar por cantidad de líneas dejaba el panel con un
+    # hueco blanco abajo.
+    AVANCE = {"tit": 1.35, "sub": .92, "blk": 1.02, "txt": .86, "fila": .92}
+    total = sum(AVANCE[t] for t, _dd, _c in lineas)
+
+    bb = ax.get_position()
+    W = .315                                     # ancho del panel, en figura
+    ALTO_LN = .0186                              # alto de una línea base
+    # La miniatura se achica en proporción: el alto que gana el panel para que
+    # el texto se lea sale de ahí, no de invadir la franja de la brújula.
+    h_mini = W * .70
+    # El alto no se topea contra una fracción suelta: se reparte lo que hay.
+    # Arriba a la derecha vive la brújula, así que se le reserva su franja o el
+    # conjunto ficha+miniatura se le montaba encima al crecer.
+    RESERVA_BRUJULA = bb.height * .13
+    disponible = bb.height - .010 - RESERVA_BRUJULA - h_mini - .008
+    h_panel = max(.10, min(disponible, .024 + ALTO_LN * total))
+
+    x0 = bb.x1 - W - .010
+    y0 = bb.y0 + .010
+    axf = fig.add_axes([x0, y0, W, h_panel], zorder=30)
+    axf.set_xlim(0, 1); axf.set_ylim(0, 1)
+    axf.set_xticks([]); axf.set_yticks([])
+    axf.set_facecolor("white")
+    for s in axf.spines.values():
+        s.set_edgecolor("#B9C2CC"); s.set_linewidth(.9)
+
+    y = 1 - .012
+    paso = ALTO_LN / h_panel
+    for tipo, dato, c in lineas:
+        if y < .01:
+            break
+        if tipo == "tit":
+            # El texto va en tinta oscura y el color de la clase queda como
+            # pastilla: en pálidos (un "Medio" amarillo) el título en su propio
+            # color sobre blanco no se leía.
+            axf.add_patch(plt.Rectangle((.038, y - paso * .95), .022, paso * .78,
+                                        transform=axf.transAxes, facecolor=c,
+                                        edgecolor="none", clip_on=True))
+            axf.text(.085, y, dato, fontsize=13.5, fontweight="bold",
+                     color="#1F2933", ha="left", va="top",
+                     transform=axf.transAxes)
+            y -= paso * 1.35
+        elif tipo == "sub":
+            axf.text(.085, y, dato, fontsize=9.2, color=c, ha="left", va="top",
+                     transform=axf.transAxes)
+            y -= paso * .92
+        elif tipo == "blk":
+            axf.add_patch(plt.Rectangle((.03, y - paso * .82), .94, paso * .80,
+                                        transform=axf.transAxes, facecolor=c,
+                                        alpha=.22, edgecolor=c, linewidth=.7,
+                                        clip_on=True))
+            axf.text(.055, y - paso * .08, dato, fontsize=9.7,
+                     fontweight="bold", color="#2A343E", ha="left", va="top",
+                     transform=axf.transAxes)
+            y -= paso * 1.02
+        elif tipo == "txt":
+            axf.text(.075, y, dato, fontsize=8.8, color=c, ha="left", va="top",
+                     transform=axf.transAxes)
+            y -= paso * .86
+        else:
+            k, v = dato
+            axf.text(.055, y, str(k), fontsize=9.2, color="#6B7680",
+                     ha="left", va="top", transform=axf.transAxes)
+            axf.text(.945, y, str(v), fontsize=9.2, color="#1F2933",
+                     ha="right", va="top", fontweight="bold",
+                     transform=axf.transAxes)
+            y -= paso * .92
+
+    # ── 3. la miniatura de ubicación ───────────────────────────────────────
+    peru = (d.get("capas") or {}).get("peru") or []
+    deptos = [x["G"] for x in ((d.get("capas") or {}).get("deptos") or [])]
+    if not (peru or deptos):
+        return
+    axm = fig.add_axes([x0, y0 + h_panel + .008, W, h_mini], zorder=30)
+    axm.set_xticks([]); axm.set_yticks([])
+    axm.set_facecolor("white")
+    for s in axm.spines.values():
+        s.set_edgecolor("#B9C2CC"); s.set_linewidth(.9)
+    # La miniatura va SIEMPRE en lat/lon: es un localizador, no un mapa medido,
+    # y así no depende del CRS que se haya elegido para la hoja.
+    gd = proyectar(deptos, "EPSG:4326") if deptos else None
+    if gd is not None:
+        gd.plot(ax=axm, color="#EDF0F3", edgecolor="#D3DAE1", linewidth=.3)
+    gp = proyectar(peru, "EPSG:4326") if peru else None
+    if gp is not None:
+        gp.boundary.plot(ax=axm, color="#8A97A3", linewidth=.7)
+    axm.plot([float(f["lon"])], [float(f["lat"])], marker="o", ms=9,
+             mfc=col, mec="white", mew=1.6, zorder=5)
+    axm.set_aspect("equal", adjustable="datalim")
+    axm.text(.5, .015, "ubicación", transform=axm.transAxes, ha="center",
+             va="bottom", fontsize=7.8, color="#8A97A3")
+
+
 def dibujar_leyenda(ax, leyenda, d):
     """Leyenda de la cadena: CULTIVO → RUTAS → ETAPAS, más la del índice.
 
@@ -940,6 +1109,22 @@ def dibujar_leyenda(ax, leyenda, d):
                                   markeredgecolor="white", markeredgewidth=1.0,
                                   label=ETIQUETA_ETAPA.get(etapa, etapa)))
 
+    # ── ÁREA AGRÍCOLA: las 4 clases de producción ──────────────────────────
+    # De Alta a Muy baja, el mismo orden que la leyenda del visor. Los CORTES no
+    # se imprimen: son por cultivo (intervalos logarítmicos sobre <cultivo>_t),
+    # así que con varios encendidos la leyenda se llenaba de números que además
+    # significan cosas distintas según el cultivo. Alcanza con decir QUÉ se está
+    # midiendo; el detalle de los cortes está en el visor.
+    ag = leyenda.get("agricola")
+    if ag and ag.get("clases"):
+        handles.append(_sep(""))
+        handles.append(_sep("ÁREA AGRÍCOLA"))
+        cul = " · ".join(c.lower() for c in ag["cultivos"] if c)
+        handles.append(_sep(f"producción de {cul} (t)" if cul else "producción (t)"))
+        for c in reversed(ag["clases"]):
+            handles.append(Patch(facecolor=c.get("color", "#7CB342"),
+                                 edgecolor="none", label=c.get("etq", "")))
+
     if leyenda["caudal"] or leyenda["extras"]:
         handles.append(_sep(""))
     if leyenda["caudal"]:
@@ -966,7 +1151,7 @@ def dibujar_leyenda(ax, leyenda, d):
         # Los encabezados de sección van en negrita y con el mismo cuerpo que
         # el título de la leyenda del índice, para que se lean como tales.
         for t in leg.get_texts():
-            if t.get_text() in ("RUTAS", "ETAPAS"):
+            if t.get_text() in ("RUTAS", "ETAPAS", "ÁREA AGRÍCOLA"):
                 t.set_fontweight("bold")
                 t.set_fontsize(FS_LEG_SEC)
         ax.add_artist(leg)
@@ -975,7 +1160,13 @@ def dibujar_leyenda(ax, leyenda, d):
     if idx:
         h = [Patch(facecolor=c, edgecolor="none", label=f"{k} · {nom}")
              for k, (nom, c) in sorted(PALETA.items(), reverse=True)]
-        leg2 = ax.legend(handles=h, loc="lower right", fontsize=FS_LEG,
+        # La ficha del punto consultado ocupa la esquina inferior derecha, que es
+        # donde iba esta leyenda: quedaba TAPADA detrás del panel. Cuando hay
+        # ficha se corre arriba a la izquierda, que es la única esquina libre
+        # (abajo-izquierda está la leyenda de la cadena, abajo-centro la barra de
+        # escala y arriba-derecha la brújula).
+        pos = "upper left" if d.get("ficha") else "lower right"
+        leg2 = ax.legend(handles=h, loc=pos, fontsize=FS_LEG,
                          framealpha=.96, borderpad=.9, labelspacing=.45,
                          edgecolor="#3A4550",
                          title=f"{idx.get('sigla', '')} · {idx.get('nombre', '')}",
@@ -1086,8 +1277,17 @@ def componer(d, salida_base, crs_forzado=None, zoom=None, sin_basemap=False,
     # pidió basemap y no llegó, igual conviene el relleno.
     con_tiles = base_ok
 
+    # "Blanco" es una ELECCIÓN, no una falla. El visor lo muestra en blanco puro
+    # y el impreso salía con tierra crema sobre lienzo gris, que es el look de
+    # atlas pensado para cuando el basemap NO llegó. Se distinguen los dos casos:
+    # elegido → todo blanco; falló → el relleno de siempre.
+    blanco = d.get("vista", {}).get("basemap") == "Blanco"
+    if blanco:
+        ax.set_facecolor("white")
+
     ft = escala_trazo(fig)
-    leyenda = dibujar_capas(ax, d, crs, d.get("opciones", {}), ft, con_tiles)
+    leyenda = dibujar_capas(ax, d, crs, d.get("opciones", {}), ft, con_tiles,
+                            color_tierra=None if blanco else "#F7F4EC")
 
     op = d.get("opciones", {})
     if op.get("grilla", True):
@@ -1098,6 +1298,8 @@ def componer(d, salida_base, crs_forzado=None, zoom=None, sin_basemap=False,
         dibujar_escala(ax, crs, bbox)
     if op.get("leyenda", True):
         dibujar_leyenda(ax, leyenda, d)
+    if op.get("ficha", True):
+        dibujar_ficha(fig, ax, d, crs)
 
     ax.set_xticks([]); ax.set_yticks([])
     for s in ax.spines.values():
